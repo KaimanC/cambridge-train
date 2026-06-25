@@ -9,8 +9,23 @@ import {
 } from "@/lib/time";
 
 const CANDIDATES_PER_TERMINUS = 5;
+const DEFAULT_LOOKAHEAD_MINUTES = 720;
+const TOKEN_REFRESH_BUFFER_MS = 60_000;
 
 type RttMode = "mock" | "token" | "basic";
+
+type CachedRttAccessToken = {
+  token: string;
+  validUntilMs: number;
+};
+
+type RttAccessTokenResponse = {
+  accessToken?: string;
+  token?: string;
+  validUntil?: string;
+};
+
+let cachedRttAccessToken: CachedRttAccessToken | undefined;
 
 type RttTemporal = {
   scheduleAdvertised?: string | null;
@@ -106,7 +121,7 @@ async function getTokenDepartures(terminus: Terminus) {
   const board = await rttTokenFetch<{ services?: RttLineupService[] }>("/gb-nr/location", {
     code: terminus.railCrs,
     filterTo: CAMBRIDGE_CRS,
-    timeWindow: "180",
+    timeWindow: rttLookaheadMinutes().toString(),
     timeTolerance: "true",
   });
 
@@ -239,8 +254,7 @@ async function rttTokenFetch<T>(path: string, params: Record<string, string | un
     if (value) url.searchParams.set(key, value);
   }
 
-  const token = process.env.RTT_ACCESS_TOKEN;
-  if (!token) throw new Error("RTT_ACCESS_TOKEN is not configured.");
+  const token = await getRttBearerToken();
 
   const response = await fetch(url, {
     headers: {
@@ -254,6 +268,52 @@ async function rttTokenFetch<T>(path: string, params: Record<string, string | un
   if (!response.ok) throw new Error(`Realtime Trains failed (${response.status}).`);
 
   return (await response.json()) as T;
+}
+
+async function getRttBearerToken() {
+  const directAccessToken = process.env.RTT_ACCESS_TOKEN;
+  if (directAccessToken) return directAccessToken;
+
+  const refreshToken = process.env.RTT_REFRESH_TOKEN;
+  if (!refreshToken) {
+    throw new Error("RTT_REFRESH_TOKEN or RTT_ACCESS_TOKEN is not configured.");
+  }
+
+  if (
+    cachedRttAccessToken &&
+    cachedRttAccessToken.validUntilMs - TOKEN_REFRESH_BUFFER_MS > Date.now()
+  ) {
+    return cachedRttAccessToken.token;
+  }
+
+  const url = new URL(
+    "/api/get_access_token",
+    process.env.RTT_API_BASE_URL ?? "https://data.rtt.io",
+  );
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${refreshToken}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Realtime Trains token exchange failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as RttAccessTokenResponse;
+  const accessToken = payload.accessToken ?? payload.token;
+  if (!accessToken || !payload.validUntil) {
+    throw new Error("Realtime Trains token exchange returned an unexpected response.");
+  }
+
+  cachedRttAccessToken = {
+    token: accessToken,
+    validUntilMs: Date.parse(payload.validUntil),
+  };
+
+  return cachedRttAccessToken.token;
 }
 
 async function rttLegacyFetch<T>(path: string) {
@@ -281,9 +341,16 @@ function getRttMode(): RttMode {
   if (process.env.RTT_AUTH_MODE === "basic") {
     return process.env.RTT_BASIC_USERNAME && process.env.RTT_BASIC_PASSWORD ? "basic" : "mock";
   }
-  if (process.env.RTT_ACCESS_TOKEN) return "token";
+  if (process.env.RTT_ACCESS_TOKEN || process.env.RTT_REFRESH_TOKEN) return "token";
   if (process.env.RTT_BASIC_USERNAME && process.env.RTT_BASIC_PASSWORD) return "basic";
   return "mock";
+}
+
+function rttLookaheadMinutes() {
+  const configured = Number(process.env.RTT_LOOKAHEAD_MINUTES);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.round(configured)
+    : DEFAULT_LOOKAHEAD_MINUTES;
 }
 
 function pickTemporalDate(temporal?: RttTemporal) {

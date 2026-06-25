@@ -4,7 +4,7 @@ Mobile-first Next.js app that answers: from London right now, what is the fastes
 
 It uses browser geolocation or a manual Tube-station picker, asks TfL for the London access leg to King's Cross, St Pancras and Liverpool Street, asks Realtime Trains for Cambridge-bound departures, then ranks by earliest arrival at Cambridge (CBG).
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/KaimanC/quickest-train-home-cambridge&project-name=quickest-train-home-cambridge&repository-name=quickest-train-home-cambridge&env=RTT_AUTH_MODE,RTT_ACCESS_TOKEN,TFL_APP_KEY,NEXT_PUBLIC_REFRESH_INTERVAL_MS&envDescription=Realtime%20Trains%20and%20TfL%20API%20settings&envLink=https://github.com/KaimanC/quickest-train-home-cambridge/blob/main/.env.example)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/KaimanC/quickest-train-home-cambridge&project-name=quickest-train-home-cambridge&repository-name=quickest-train-home-cambridge&env=RTT_AUTH_MODE,RTT_REFRESH_TOKEN,TFL_APP_KEY,NEXT_PUBLIC_REFRESH_INTERVAL_MS&envDescription=Realtime%20Trains%20and%20TfL%20API%20settings&envLink=https://github.com/KaimanC/quickest-train-home-cambridge/blob/main/.env.example)
 
 ## Local setup
 
@@ -23,7 +23,9 @@ Without Realtime Trains credentials the app still runs, but train departures are
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `RTT_AUTH_MODE` | Yes | Use `token` for the new API portal. Use `basic` only for old api.rtt.io accounts. |
-| `RTT_ACCESS_TOKEN` | For live RTT | Bearer token from the new Realtime Trains portal. |
+| `RTT_REFRESH_TOKEN` | For live RTT | Portal token described as "use this token to request an access token". |
+| `RTT_ACCESS_TOKEN` | Optional | Only use if RTT explicitly issued a long-life access token. |
+| `RTT_LOOKAHEAD_MINUTES` | No | Defaults to `720` so late-night queries can still catch first-morning trains. |
 | `RTT_API_BASE_URL` | No | Defaults to `https://data.rtt.io`. |
 | `RTT_BASIC_USERNAME` / `RTT_BASIC_PASSWORD` | Legacy only | Old Realtime Trains Basic Auth credentials. |
 | `RTT_LEGACY_BASE_URL` | Legacy only | Defaults to `https://api.rtt.io/api/v1`. |
@@ -38,7 +40,7 @@ Without Realtime Trains credentials the app still runs, but train departures are
 1. Go to `https://api-portal.rtt.io`.
 2. Sign in with an RTT unified login.
 3. Request an API token for personal/non-commercial use.
-4. Add the token to Vercel as `RTT_ACCESS_TOKEN`.
+4. Add the portal token to Vercel as `RTT_REFRESH_TOKEN`.
 
 The older Pull API at `api.rtt.io` used HTTP Basic Auth and is still supported by this app with `RTT_AUTH_MODE=basic`, but the new portal uses bearer tokens.
 
@@ -61,4 +63,3 @@ The app uses Next.js App Router route handlers under `src/app/api/*`, so all Rea
 ## Route ranking
 
 See [docs/route-ranking.md](docs/route-ranking.md).
-

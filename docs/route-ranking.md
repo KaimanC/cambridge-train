@@ -9,7 +9,7 @@
    - King's Cross: 6 minutes.
    - St Pancras Thameslink: 8 minutes.
    - Liverpool Street: 6 minutes.
-4. Realtime Trains returns Cambridge-bound services from KGX, STP and LST. The app fetches service detail for candidate trains so it can rank by Cambridge (CBG) arrival, not London departure.
+4. Realtime Trains returns Cambridge-bound services from KGX, STP and LST. The default lookahead is 12 hours so overnight first-service options can be ranked. The app fetches service detail for candidate trains so it can rank by Cambridge (CBG) arrival, not London departure.
 5. A train is considered catchable only when its live departure is at or after `TfL arrival + interchange buffer`.
 6. Candidate routes are sorted by Cambridge arrival time, then by London departure time. The UI shows the top three.
 
