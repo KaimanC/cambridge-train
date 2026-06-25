@@ -1,0 +1,65 @@
+import type { Station } from "@/app/types";
+
+export const CAMBRIDGE_CRS = "CBG";
+
+export type Terminus = {
+  id: string;
+  name: string;
+  railCrs: string;
+  tflStopId: string;
+  tflStopName: string;
+  interchangeMinutes: number;
+  interchangeNote: string;
+};
+
+export const TERMINI: Terminus[] = [
+  {
+    id: "kings-cross",
+    name: "King's Cross",
+    railCrs: "KGX",
+    tflStopId: "940GZZLUKSX",
+    tflStopName: "King's Cross St. Pancras Underground Station",
+    interchangeMinutes: 6,
+    interchangeNote: "Underground platforms to King's Cross mainline concourse.",
+  },
+  {
+    id: "st-pancras",
+    name: "St Pancras",
+    railCrs: "STP",
+    tflStopId: "940GZZLUKSX",
+    tflStopName: "King's Cross St. Pancras Underground Station",
+    interchangeMinutes: 8,
+    interchangeNote: "Shared King's Cross St Pancras interchange to Thameslink platforms.",
+  },
+  {
+    id: "liverpool-street",
+    name: "Liverpool Street",
+    railCrs: "LST",
+    tflStopId: "940GZZLULVT",
+    tflStopName: "Liverpool Street Underground Station",
+    interchangeMinutes: 6,
+    interchangeNote: "Underground platforms to Liverpool Street mainline concourse.",
+  },
+];
+
+export const QUICK_STATIONS: Station[] = [
+  { id: "940GZZLUOXC", name: "Oxford Circus Underground Station" },
+  { id: "940GZZLUKSX", name: "King's Cross St. Pancras Underground Station" },
+  { id: "940GZZLULVT", name: "Liverpool Street Underground Station" },
+  { id: "940GZZLUEUS", name: "Euston Underground Station" },
+  { id: "940GZZLUBNK", name: "Bank Underground Station" },
+  { id: "940GZZLUWLO", name: "Waterloo Underground Station" },
+  { id: "940GZZLULNB", name: "London Bridge Underground Station" },
+  { id: "940GZZLUPAC", name: "Paddington Underground Station" },
+  { id: "940GZZLUWSM", name: "Westminster Underground Station" },
+  { id: "940GZZLUCWR", name: "Canary Wharf Underground Station" },
+  { id: "940GZZLUSTD", name: "Stratford Underground Station" },
+];
+
+export const ASSUMPTIONS = [
+  "Routes are ranked by Cambridge arrival time after the London access leg and station interchange buffer.",
+  "TfL Journey Planner supplies Tube, walking, interchange and live status estimates for the London leg.",
+  "Realtime Trains supplies live train departure and Cambridge arrival data; without RTT credentials, train data is mocked.",
+  "Cambridge means Cambridge station (CBG), not Cambridge North.",
+];
+
