@@ -5,12 +5,18 @@ import { parseTflDateTime, toIso } from "@/lib/time";
 type TflStopPoint = {
   id?: string;
   naptanId?: string;
+  stationNaptan?: string;
   commonName?: string;
   name?: string;
   lat?: number;
   lon?: number;
   distance?: number;
   lines?: { id?: string; name?: string }[];
+  lineGroup?: {
+    stationAtcoCode?: string;
+    lineIdentifier?: string[];
+  }[];
+  children?: TflStopPoint[];
   modes?: string[];
 };
 
@@ -66,10 +72,43 @@ export async function searchTubeStations(query: string) {
     modes: "tube",
   });
 
-  return (payload.matches ?? [])
-    .map(normalizeStation)
+  const expanded = await Promise.all(
+    (payload.matches ?? []).map((stop) => expandSearchStop(stop)),
+  );
+
+  return expanded
+    .flat()
     .filter((station): station is Station => Boolean(station?.id && station.name))
     .slice(0, 8);
+}
+
+async function expandSearchStop(stop: TflStopPoint) {
+  const station = normalizeStation(stop);
+  if (!station?.id.startsWith("HUB")) return station ? [station] : [];
+
+  try {
+    const hub = await tflFetchJson<TflStopPoint>(`/StopPoint/${station.id}`, {});
+    const tubeGroups = new Map<string, string[]>();
+
+    for (const group of hub.lineGroup ?? []) {
+      const stationAtcoCode = group.stationAtcoCode;
+      if (!stationAtcoCode?.startsWith("940GZZLU")) continue;
+      tubeGroups.set(stationAtcoCode, [
+        ...(tubeGroups.get(stationAtcoCode) ?? []),
+        ...(group.lineIdentifier ?? []),
+      ]);
+    }
+
+    return [...tubeGroups.entries()].map(([id, lineIds]) => ({
+      id,
+      name: hubNameForStation(hub, id),
+      lat: hub.lat,
+      lon: hub.lon,
+      lines: [...new Set(lineIds)].map(formatLineName),
+    }));
+  } catch {
+    return [station];
+  }
 }
 
 export async function getAccessJourney(origin: TflOrigin, terminus: Terminus) {
@@ -172,6 +211,19 @@ function normalizeStation(stop: TflStopPoint): Station | undefined {
   };
 }
 
+function hubNameForStation(hub: TflStopPoint, stationId: string) {
+  const childName = hub.children?.find((child) => child.stationNaptan === stationId)?.commonName;
+  if (childName) return childName.replace(/-Underground$/, " Underground Station");
+  return `${hub.commonName ?? hub.name ?? "Station"} Underground Station`;
+}
+
+function formatLineName(lineId: string) {
+  return lineId
+    .split("-")
+    .map((word) => (word === "and" ? "&" : word[0].toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
 function normalizeLeg(leg: TflJourneyLeg): JourneyLeg {
   const instruction =
     leg.instruction?.detailed ??
@@ -199,4 +251,3 @@ function extractDirection(instruction: string) {
 function minutesFromDates(start: Date, end: Date) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
 }
-

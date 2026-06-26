@@ -8,9 +8,10 @@ import {
   ymdInLondon,
 } from "@/lib/time";
 
-const CANDIDATES_PER_TERMINUS = 5;
+const CANDIDATES_PER_TERMINUS = 3;
 const DEFAULT_LOOKAHEAD_MINUTES = 720;
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
+const RTT_RESPONSE_CACHE_MS = 45_000;
 
 type RttMode = "mock" | "token" | "basic";
 
@@ -26,6 +27,7 @@ type RttAccessTokenResponse = {
 };
 
 let cachedRttAccessToken: CachedRttAccessToken | undefined;
+const rttResponseCache = new Map<string, { expiresAt: number; data: unknown }>();
 
 type RttTemporal = {
   scheduleAdvertised?: string | null;
@@ -130,9 +132,10 @@ async function getTokenDepartures(terminus: Terminus) {
     .filter((service) => !service.temporalData?.departure?.isCancelled)
     .slice(0, CANDIDATES_PER_TERMINUS);
 
-  const trains = await Promise.all(
-    candidates.map((service) => enrichTokenService(service, terminus)),
-  );
+  const trains: (TrainOption | undefined)[] = [];
+  for (const service of candidates) {
+    trains.push(await enrichTokenService(service, terminus));
+  }
 
   return trains
     .filter((train): train is TrainOption => Boolean(train))
@@ -254,6 +257,12 @@ async function rttTokenFetch<T>(path: string, params: Record<string, string | un
     if (value) url.searchParams.set(key, value);
   }
 
+  const cacheKey = url.toString();
+  const cached = rttResponseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data as T;
+  }
+
   const token = await getRttBearerToken();
 
   const response = await fetch(url, {
@@ -267,7 +276,13 @@ async function rttTokenFetch<T>(path: string, params: Record<string, string | un
   if (response.status === 204) return {} as T;
   if (!response.ok) throw new Error(`Realtime Trains failed (${response.status}).`);
 
-  return (await response.json()) as T;
+  const data = (await response.json()) as T;
+  rttResponseCache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + RTT_RESPONSE_CACHE_MS,
+  });
+
+  return data;
 }
 
 async function getRttBearerToken() {
