@@ -462,6 +462,13 @@ function mockDepartures(terminus: Terminus) {
       operator: "Thameslink",
       platforms: ["A", "B"],
     },
+    farringdon: {
+      first: 38,
+      every: 30,
+      duration: 64,
+      operator: "Thameslink",
+      platforms: ["3", "4"],
+    },
     "liverpool-street": {
       first: 24,
       every: 30,

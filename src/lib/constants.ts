@@ -32,6 +32,15 @@ export const TERMINI: Terminus[] = [
     interchangeNote: "Shared King's Cross St Pancras interchange to Thameslink platforms.",
   },
   {
+    id: "farringdon",
+    name: "Farringdon",
+    railCrs: "ZFD",
+    tflStopId: "940GZZLUFCN",
+    tflStopName: "Farringdon Underground Station",
+    interchangeMinutes: 4,
+    interchangeNote: "Underground or Elizabeth line platforms to Farringdon Thameslink platforms.",
+  },
+  {
     id: "liverpool-street",
     name: "Liverpool Street",
     railCrs: "LST",
@@ -45,6 +54,7 @@ export const TERMINI: Terminus[] = [
 export const QUICK_STATIONS: Station[] = [
   { id: "940GZZLUOXC", name: "Oxford Circus Underground Station" },
   { id: "940GZZLUKSX", name: "King's Cross St. Pancras Underground Station" },
+  { id: "940GZZLUFCN", name: "Farringdon Underground Station" },
   { id: "940GZZLULVT", name: "Liverpool Street Underground Station" },
   { id: "940GZZLUEUS", name: "Euston Underground Station" },
   { id: "940GZZLUBNK", name: "Bank Underground Station" },
@@ -57,9 +67,8 @@ export const QUICK_STATIONS: Station[] = [
 ];
 
 export const ASSUMPTIONS = [
-  "Routes are ranked by Cambridge arrival time after the London access leg and station interchange buffer.",
+  "Routes are ranked by Cambridge arrival time after the London access leg and station transfer buffer.",
   "TfL Journey Planner supplies Tube, walking, interchange and live status estimates for the London leg.",
   "Realtime Trains supplies live train departure and Cambridge arrival data; without RTT credentials, train data is mocked.",
   "Cambridge means Cambridge station (CBG), not Cambridge North.",
 ];
-
