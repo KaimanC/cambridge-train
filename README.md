@@ -4,7 +4,7 @@ Mobile-first Next.js app that answers: from London right now, what is the fastes
 
 It uses browser geolocation or a manual Tube-station picker, asks TfL for the London access leg to King's Cross, St Pancras, Farringdon and Liverpool Street, asks Realtime Trains for Cambridge-bound departures, then ranks by earliest arrival at Cambridge (CBG).
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/KaimanC/quickest-train-home-cambridge&project-name=quickest-train-home-cambridge&repository-name=quickest-train-home-cambridge&env=RTT_AUTH_MODE,RTT_REFRESH_TOKEN,TFL_APP_KEY,NEXT_PUBLIC_REFRESH_INTERVAL_MS&envDescription=Realtime%20Trains%20and%20TfL%20API%20settings&envLink=https://github.com/KaimanC/quickest-train-home-cambridge/blob/main/.env.example)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/KaimanC/cambridge-train&project-name=cambridge-train&repository-name=cambridge-train&env=RTT_AUTH_MODE,RTT_REFRESH_TOKEN,TFL_APP_KEY,NEXT_PUBLIC_REFRESH_INTERVAL_MS&envDescription=Realtime%20Trains%20and%20TfL%20API%20settings&envLink=https://github.com/KaimanC/cambridge-train/blob/main/.env.example)
 
 ## Local setup
 

@@ -1,6 +1,11 @@
 import type { AccessJourney, JourneyLeg, Station } from "@/app/types";
 import type { Terminus } from "@/lib/constants";
-import { parseTflDateTime, toIso } from "@/lib/time";
+import {
+  londonDateParam,
+  londonTimeParam,
+  parseTflDateTime,
+  toIso,
+} from "@/lib/time";
 
 type TflStopPoint = {
   id?: string;
@@ -18,6 +23,7 @@ type TflStopPoint = {
   }[];
   children?: TflStopPoint[];
   modes?: string[];
+  stopType?: string;
 };
 
 type TflJourney = {
@@ -45,6 +51,28 @@ type TflJourneyLeg = {
 export type TflOrigin =
   | { kind: "coordinates"; lat: number; lon: number; label?: string }
   | { kind: "station"; stationId: string; stationName: string };
+
+export async function getAllTubeStations(): Promise<Station[]> {
+  // Type/NaptanMetroStation (~2.7MB) is far leaner than Mode/tube (~21MB) and
+  // already returns one entry per station with coordinates. Skip Next's fetch
+  // cache (the body exceeds the 2MB limit); the route handler does its own ISR.
+  const stops = await tflFetchJson<TflStopPoint[]>(
+    "/StopPoint/Type/NaptanMetroStation",
+    {},
+    { cache: false },
+  );
+
+  const byId = new Map<string, Station>();
+  for (const stop of stops ?? []) {
+    if (!stop.modes?.includes("tube")) continue;
+    const station = normalizeStation(stop);
+    if (station?.id && station.name && station.lat != null && station.lon != null) {
+      byId.set(station.id, station);
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export async function getNearestTubeStation(lat: number, lon: number) {
   const payload = await tflFetchJson<{
@@ -111,20 +139,24 @@ async function expandSearchStop(stop: TflStopPoint) {
   }
 }
 
-export async function getAccessJourney(origin: TflOrigin, terminus: Terminus) {
+export async function getAccessJourney(
+  origin: TflOrigin,
+  terminus: Terminus,
+  departAt?: Date,
+) {
   const from =
     origin.kind === "coordinates"
       ? `${origin.lat},${origin.lon}`
       : origin.stationId;
 
   if (origin.kind === "station" && origin.stationId === terminus.tflStopId) {
-    const now = new Date();
+    const at = departAt ?? new Date();
     return {
       terminusId: terminus.id,
       terminusName: terminus.name,
       durationMinutes: 0,
-      leaveTime: toIso(now),
-      arrivalTime: toIso(now),
+      leaveTime: toIso(at),
+      arrivalTime: toIso(at),
       legs: [],
       statusMessages: [],
     } satisfies AccessJourney;
@@ -137,7 +169,9 @@ export async function getAccessJourney(origin: TflOrigin, terminus: Terminus) {
     mode: "walking,tube,dlr,elizabeth-line,overground",
     journeyPreference: "leasttime",
     timeIs: "Departing",
-    useRealTimeLiveArrivals: "true",
+    date: departAt ? londonDateParam(departAt) : undefined,
+    time: departAt ? londonTimeParam(departAt) : undefined,
+    useRealTimeLiveArrivals: departAt ? "false" : "true",
     routeBetweenEntrances: "true",
     walkingSpeed: "average",
   });
@@ -173,6 +207,7 @@ export async function getAccessJourney(origin: TflOrigin, terminus: Terminus) {
 async function tflFetchJson<T>(
   path: string,
   params: Record<string, string | undefined>,
+  options: { cache?: boolean } = {},
 ) {
   const url = new URL(path, "https://api.tfl.gov.uk");
   for (const [key, value] of Object.entries(params)) {
@@ -185,7 +220,9 @@ async function tflFetchJson<T>(
 
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
-    next: { revalidate: 60 },
+    ...(options.cache === false
+      ? { cache: "no-store" as const }
+      : { next: { revalidate: 60 } }),
   });
 
   if (!response.ok) {

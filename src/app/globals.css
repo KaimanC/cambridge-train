@@ -437,6 +437,74 @@ h2 {
   }
 }
 
+.departControl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.departControl label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.departControl input {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--panel-strong);
+  color: var(--foreground);
+}
+
+.linkButton {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.button.ghost {
+  border-style: dashed;
+  color: var(--accent-strong);
+  background: var(--panel-strong);
+}
+
+.mapToggle {
+  width: 100%;
+}
+
+.mapBand {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.stationMap {
+  height: 420px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.mapLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--panel-strong);
+}
+
 @media (min-width: 760px) {
   .appShell {
     padding: 30px;

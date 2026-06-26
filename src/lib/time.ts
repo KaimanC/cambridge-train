@@ -61,6 +61,18 @@ export function ymdInLondon(date = new Date()) {
   return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
 }
 
+/** TfL Journey Planner `date` param, formatted as yyyyMMdd in London time. */
+export function londonDateParam(date: Date) {
+  const parts = getLondonParts(date);
+  return `${parts.year}${pad2(parts.month)}${pad2(parts.day)}`;
+}
+
+/** TfL Journey Planner `time` param, formatted as HHmm in London time. */
+export function londonTimeParam(date: Date) {
+  const parts = getLondonParts(date);
+  return `${pad2(parts.hour)}${pad2(parts.minute)}`;
+}
+
 export function parseTflDateTime(value?: string | null) {
   if (!value) return undefined;
   if (/[zZ]|[+-]\d\d:\d\d$/.test(value)) return new Date(value);

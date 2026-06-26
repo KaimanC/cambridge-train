@@ -8,6 +8,8 @@ export async function GET(request: Request) {
   const lon = Number(url.searchParams.get("lon"));
   const stationId = url.searchParams.get("stationId");
   const stationName = url.searchParams.get("stationName");
+  const whenParam = url.searchParams.get("when");
+  const when = whenParam && !Number.isNaN(Date.parse(whenParam)) ? whenParam : undefined;
 
   try {
     if (stationId && !stationName) {
@@ -26,8 +28,8 @@ export async function GET(request: Request) {
 
     const data =
       stationId && stationName
-        ? await buildRoutes({ kind: "station", stationId, stationName })
-        : await buildRoutes({ kind: "coordinates", lat, lon });
+        ? await buildRoutes({ kind: "station", stationId, stationName, when })
+        : await buildRoutes({ kind: "coordinates", lat, lon, when });
 
     return Response.json(data, {
       headers: {

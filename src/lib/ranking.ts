@@ -13,11 +13,15 @@ import { getCambridgeDepartures, usingMockRtt } from "@/lib/rtt";
 import { addMinutes, minutesBetween, toIso } from "@/lib/time";
 
 type BuildInput =
-  | { kind: "coordinates"; lat: number; lon: number }
-  | { kind: "station"; stationId: string; stationName: string };
+  | { kind: "coordinates"; lat: number; lon: number; when?: string }
+  | { kind: "station"; stationId: string; stationName: string; when?: string };
 
 export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
-  const now = new Date();
+  // Treat the chosen depart-at time (if any) as "now" for planning. TfL and RTT
+  // need a real-time departure to plan against, so an immediate query keeps the
+  // current behaviour while a future time shifts the whole plan forward.
+  const departAt = input.when ? new Date(input.when) : undefined;
+  const now = departAt && !Number.isNaN(departAt.getTime()) ? departAt : new Date();
   const errors: string[] = [];
   const nearestStation =
     input.kind === "coordinates"
@@ -27,6 +31,24 @@ export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
         })
       : undefined;
 
+  // TfL's Journey Planner only covers Greater London, so a coordinate origin with
+  // no nearby Tube station (e.g. starting in Cambridge) would otherwise produce a
+  // string of raw 404s. Surface one clear, actionable message instead.
+  if (input.kind === "coordinates" && !nearestStation) {
+    return {
+      generatedAt: toIso(now),
+      mock: usingMockRtt(),
+      origin: summarizeOrigin(input, undefined),
+      nearestStation: undefined,
+      routes: [],
+      errors: [
+        "Your current location looks outside the London Underground network, so we can't plan a Tube leg from here. Search for your London terminal or Tube station above, or pick one of the quick buttons.",
+      ],
+      assumptions: ASSUMPTIONS,
+      sources: rttSources(),
+    };
+  }
+
   if (nearestStation?.distanceMeters && nearestStation.distanceMeters > 2_000) {
     errors.push("No Underground station was found within an easy walk. Use the station picker.");
   }
@@ -35,7 +57,10 @@ export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
   const tflOrigin = toTflOrigin(input, nearestStation);
 
   const accessSettled = await Promise.allSettled(
-    TERMINI.map(async (terminus) => [terminus.id, await getAccessJourney(tflOrigin, terminus)] as const),
+    TERMINI.map(
+      async (terminus) =>
+        [terminus.id, await getAccessJourney(tflOrigin, terminus, departAt)] as const,
+    ),
   );
   const accessByTerminus = new Map<string, AccessJourney>();
   for (const result of accessSettled) {
@@ -55,7 +80,7 @@ export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
 
       return [
         terminus.id,
-        await getCambridgeDepartures(terminus, { notBefore: readyAt }),
+        await getCambridgeDepartures(terminus, { notBefore: readyAt, searchTime: departAt }),
       ] as const;
     }),
   );
@@ -127,14 +152,18 @@ export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
     routes,
     errors,
     assumptions: ASSUMPTIONS,
-    sources: {
-      tfl: "https://api.tfl.gov.uk",
-      rtt: usingMockRtt()
-        ? "mock"
-        : process.env.RTT_AUTH_MODE === "basic"
-          ? "https://api.rtt.io/api/v1"
-          : "https://data.rtt.io",
-    },
+    sources: rttSources(),
+  };
+}
+
+function rttSources() {
+  return {
+    tfl: "https://api.tfl.gov.uk",
+    rtt: usingMockRtt()
+      ? "mock"
+      : process.env.RTT_AUTH_MODE === "basic"
+        ? "https://api.rtt.io/api/v1"
+        : "https://data.rtt.io",
   };
 }
 

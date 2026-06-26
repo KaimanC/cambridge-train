@@ -51,16 +51,18 @@ export const TERMINI: Terminus[] = [
   },
 ];
 
+// The first six are rendered as the default quick-start buttons.
 export const QUICK_STATIONS: Station[] = [
-  { id: "940GZZLUOXC", name: "Oxford Circus Underground Station" },
+  { id: "940GZZLUHR5", name: "Heathrow Terminal 5 Underground Station" },
+  { id: "940GZZLUPAC", name: "Paddington Underground Station" },
   { id: "940GZZLUKSX", name: "King's Cross St. Pancras Underground Station" },
-  { id: "940GZZLUFCN", name: "Farringdon Underground Station" },
   { id: "940GZZLULVT", name: "Liverpool Street Underground Station" },
+  { id: "940GZZLUOXC", name: "Oxford Circus Underground Station" },
+  { id: "940GZZLUFCN", name: "Farringdon Underground Station" },
   { id: "940GZZLUEUS", name: "Euston Underground Station" },
   { id: "940GZZLUBNK", name: "Bank Underground Station" },
   { id: "940GZZLUWLO", name: "Waterloo Underground Station" },
   { id: "940GZZLULNB", name: "London Bridge Underground Station" },
-  { id: "940GZZLUPAC", name: "Paddington Underground Station" },
   { id: "940GZZLUWSM", name: "Westminster Underground Station" },
   { id: "940GZZLUCWR", name: "Canary Wharf Underground Station" },
   { id: "940GZZLUSTD", name: "Stratford Underground Station" },

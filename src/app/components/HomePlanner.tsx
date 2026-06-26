@@ -4,15 +4,22 @@ import {
   AlertTriangle,
   Clock,
   LocateFixed,
+  Map as MapIcon,
   MapPin,
   RefreshCw,
   Search,
   TrainFront,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RankedRoute, RoutesResponse, Station } from "@/app/types";
 import { QUICK_STATIONS } from "@/lib/constants";
 import { formatLondonStamp, formatLondonTime } from "@/lib/time";
+
+const StationMap = dynamic(() => import("@/app/components/StationMap"), {
+  ssr: false,
+  loading: () => <div className="stationMap mapLoading">Loading map…</div>,
+});
 
 type OriginState =
   | { kind: "coordinates"; lat: number; lon: number; label: string }
@@ -30,11 +37,23 @@ export default function HomePlanner() {
   const [stationQuery, setStationQuery] = useState("");
   const [stationResults, setStationResults] = useState<Station[]>([]);
   const [stationSearchError, setStationSearchError] = useState<string | null>(null);
+  const [departAt, setDepartAt] = useState("");
+  const [showMap, setShowMap] = useState(false);
+  const [allStations, setAllStations] = useState<Station[]>([]);
+  const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  // Read inside the stable fetchRoutes callback without making it depend on the value.
+  const departAtRef = useRef(departAt);
+  useEffect(() => {
+    departAtRef.current = departAt;
+  }, [departAt]);
 
   const originLabel = useMemo(() => {
     if (!origin) return "No start selected";
     return origin.kind === "station" ? origin.station.name : origin.label;
   }, [origin]);
+
+  const selectedStationId = origin?.kind === "station" ? origin.station.id : undefined;
 
   const fetchRoutes = useCallback(async (nextOrigin: OriginState, showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -48,6 +67,9 @@ export default function HomePlanner() {
       params.set("lat", String(nextOrigin.lat));
       params.set("lon", String(nextOrigin.lon));
     }
+
+    const whenIso = toWhenIso(departAtRef.current);
+    if (whenIso) params.set("when", whenIso);
 
     try {
       const response = await fetch(`/api/routes?${params.toString()}`, {
@@ -108,6 +130,16 @@ export default function HomePlanner() {
     return () => window.clearInterval(timer);
   }, [fetchRoutes, origin]);
 
+  // Re-plan whenever the depart-at time changes for an already-selected start.
+  // Deferred so the ref-sync effect above runs first and to avoid a synchronous
+  // setState cascade inside the effect body.
+  useEffect(() => {
+    if (!origin) return;
+    const timer = window.setTimeout(() => fetchRoutes(origin), 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departAt]);
+
   useEffect(() => {
     const query = stationQuery.trim();
     if (query.length < 2) {
@@ -128,6 +160,28 @@ export default function HomePlanner() {
 
     return () => window.clearTimeout(timer);
   }, [stationQuery]);
+
+  const loadAllStations = useCallback(async () => {
+    if (allStations.length || mapStatus === "loading") return;
+    setMapStatus("loading");
+    try {
+      const response = await fetch("/api/stations/all");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Unable to load Tube stations.");
+      setAllStations(payload.stations ?? []);
+      setMapStatus("idle");
+    } catch {
+      setMapStatus("error");
+    }
+  }, [allStations.length, mapStatus]);
+
+  function toggleMap() {
+    setShowMap((open) => {
+      const next = !open;
+      if (next) loadAllStations();
+      return next;
+    });
+  }
 
   function pickStation(station: Station) {
     const nextOrigin = { kind: "station" as const, station };
@@ -183,6 +237,26 @@ export default function HomePlanner() {
             </p>
           ) : null}
           {locationMessage ? <p className="warningText">{locationMessage}</p> : null}
+
+          <div className="departControl">
+            <label htmlFor="depart-at">
+              <Clock size={16} aria-hidden="true" />
+              Depart
+            </label>
+            <input
+              id="depart-at"
+              type="datetime-local"
+              value={departAt}
+              onChange={(event) => setDepartAt(event.target.value)}
+            />
+            {departAt ? (
+              <button className="linkButton" onClick={() => setDepartAt("")}>
+                Now
+              </button>
+            ) : (
+              <span className="mutedText">Leaving now</span>
+            )}
+          </div>
         </div>
 
         <div className="stationSearch">
@@ -217,8 +291,28 @@ export default function HomePlanner() {
               </button>
             ))}
           </div>
+
+          <button className="button ghost mapToggle" onClick={toggleMap} aria-expanded={showMap}>
+            <MapIcon size={18} aria-hidden="true" />
+            {showMap ? "Hide station map" : "Pick on map"}
+          </button>
         </div>
       </section>
+
+      {showMap ? (
+        <section className="mapBand" aria-label="Underground station map">
+          {mapStatus === "error" ? (
+            <ErrorPanel message="Could not load the Tube station map." subdued />
+          ) : (
+            <StationMap
+              stations={allStations}
+              selectedId={selectedStationId}
+              onSelect={pickStation}
+            />
+          )}
+          <p className="mutedText">Drag to pan, scroll to zoom, click a station to set your start.</p>
+        </section>
+      ) : null}
 
       <section className="statusBand" aria-live="polite">
         <div>
@@ -321,8 +415,6 @@ function RouteCard({ route }: { route: RankedRoute }) {
           </dl>
         </div>
       </div>
-
-      {route.warnings.length ? <p className="warningText">{route.warnings[0]}</p> : null}
     </article>
   );
 }
@@ -352,4 +444,10 @@ function LoadingRoutes() {
 
 function shortStationName(name: string) {
   return name.replace(" Underground Station", "").replace(" Station", "");
+}
+
+function toWhenIso(local: string) {
+  if (!local) return undefined;
+  const date = new Date(local);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }

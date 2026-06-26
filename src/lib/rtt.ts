@@ -115,6 +115,8 @@ export function usingMockRtt() {
 
 type DepartureOptions = {
   notBefore?: Date;
+  /** Plan around this time instead of now (depart-at feature). */
+  searchTime?: Date;
 };
 
 export async function getCambridgeDepartures(
@@ -122,7 +124,7 @@ export async function getCambridgeDepartures(
   options: DepartureOptions = {},
 ) {
   const mode = getRttMode();
-  if (mode === "mock") return mockDepartures(terminus);
+  if (mode === "mock") return mockDepartures(terminus, options.searchTime);
   if (mode === "basic") return getLegacyDepartures(terminus, options);
   return getTokenDepartures(terminus, options);
 }
@@ -131,7 +133,7 @@ async function getTokenDepartures(terminus: Terminus, options: DepartureOptions)
   const board = await rttTokenFetch<{ services?: RttLineupService[] }>("/gb-nr/location", {
     code: terminus.railCrs,
     filterTo: CAMBRIDGE_CRS,
-    timeWindow: rttLookaheadMinutes().toString(),
+    timeWindow: rttLookaheadMinutes(options.searchTime).toString(),
     timeTolerance: "true",
   });
 
@@ -377,11 +379,22 @@ function getRttMode(): RttMode {
   return "mock";
 }
 
-function rttLookaheadMinutes() {
+const MAX_LOOKAHEAD_MINUTES = 1_440;
+
+function rttLookaheadMinutes(searchTime?: Date) {
   const configured = Number(process.env.RTT_LOOKAHEAD_MINUTES);
-  return Number.isFinite(configured) && configured > 0
-    ? Math.round(configured)
-    : DEFAULT_LOOKAHEAD_MINUTES;
+  const base =
+    Number.isFinite(configured) && configured > 0
+      ? Math.round(configured)
+      : DEFAULT_LOOKAHEAD_MINUTES;
+
+  // The board window is measured from "now", so a future depart time needs the
+  // gap from now until then added on so those services are still in range.
+  const aheadMinutes = searchTime
+    ? Math.max(0, Math.round((searchTime.getTime() - Date.now()) / 60_000))
+    : 0;
+
+  return Math.min(MAX_LOOKAHEAD_MINUTES, base + aheadMinutes);
 }
 
 function pickTemporalDate(temporal?: RttTemporal) {
@@ -444,8 +457,8 @@ function statusText(delayMinutes?: number | null, isCancelled?: boolean) {
   return `${delayMinutes} min late`;
 }
 
-function mockDepartures(terminus: Terminus) {
-  const now = new Date();
+function mockDepartures(terminus: Terminus, searchTime?: Date) {
+  const now = searchTime ?? new Date();
   const runDate = ymdInLondon(now);
   const profiles: Record<string, { first: number; every: number; duration: number; operator: string; platforms: string[] }> = {
     "kings-cross": {
