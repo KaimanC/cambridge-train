@@ -26,6 +26,7 @@ type OriginState =
   | { kind: "station"; station: Station };
 
 const REFRESH_MS = Number(process.env.NEXT_PUBLIC_REFRESH_INTERVAL_MS ?? 60_000);
+const LONDON_TIME_ZONE = "Europe/London";
 
 export default function HomePlanner() {
   const [origin, setOrigin] = useState<OriginState | null>(null);
@@ -334,7 +335,7 @@ export default function HomePlanner() {
       {data && !loading ? (
         <section className="routesList" aria-label="Ranked routes">
           {data.routes.length ? (
-            data.routes.map((route) => <RouteCard key={route.rank} route={route} />)
+            data.routes.map((route) => <RouteCard key={route.rank} route={route} generatedAt={data.generatedAt} />)
           ) : (
             <div className="emptyState">
               <AlertTriangle size={20} aria-hidden="true" />
@@ -347,7 +348,7 @@ export default function HomePlanner() {
   );
 }
 
-function RouteCard({ route }: { route: RankedRoute }) {
+function RouteCard({ route, generatedAt }: { route: RankedRoute; generatedAt: string }) {
   return (
     <article className="routeCard">
       <div className="routeHeader">
@@ -356,7 +357,7 @@ function RouteCard({ route }: { route: RankedRoute }) {
           <h2>{route.terminus.name}</h2>
         </div>
         <div className="arrivalBlock">
-          <span>{formatLondonTime(route.arrivalTime)}</span>
+          <span>{formatJourneyTime(route.arrivalTime, generatedAt)}</span>
           <small>{route.totalMinutes} min total</small>
         </div>
       </div>
@@ -365,7 +366,7 @@ function RouteCard({ route }: { route: RankedRoute }) {
         <div className="journeyPart">
           <p className="partLabel">
             <Clock size={16} aria-hidden="true" />
-            Leave by {formatLondonTime(route.leaveBy)}
+            {leaveByLabel(route.leaveBy, generatedAt)}
           </p>
           <p className="mainText">
             {route.access.durationMinutes
@@ -385,7 +386,7 @@ function RouteCard({ route }: { route: RankedRoute }) {
             )}
           </div>
           <p className="mutedText">
-            Ready at {formatLondonTime(route.readyAt)} after {route.terminus.interchangeMinutes} min interchange.
+            Ready {relativeTimePhrase(route.readyAt, generatedAt)} after {route.terminus.interchangeMinutes} min interchange.
           </p>
         </div>
 
@@ -395,12 +396,12 @@ function RouteCard({ route }: { route: RankedRoute }) {
             {route.train.operator}
           </p>
           <p className="mainText">
-            {formatLondonTime(route.train.departureTime)} to {route.train.destinationName}
+            {formatJourneyTime(route.train.departureTime, generatedAt)} to {route.train.destinationName}
           </p>
           <dl className="trainFacts">
             <div>
               <dt>Arrives</dt>
-              <dd>{formatLondonTime(route.train.arrivalTime)}</dd>
+              <dd>{formatJourneyTime(route.train.arrivalTime, generatedAt)}</dd>
             </div>
             <div>
               <dt>Platform</dt>
@@ -450,4 +451,68 @@ function toWhenIso(local: string) {
   if (!local) return undefined;
   const date = new Date(local);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function leaveByLabel(value: string, reference: string) {
+  const qualifier = dateQualifier(value, reference);
+  const time = formatLondonTime(value);
+  if (qualifier === "today") return `Leave by ${time}`;
+  if (qualifier === "tomorrow") return `Leave tomorrow at ${time}`;
+  return `Leave ${qualifier} ${time}`;
+}
+
+function relativeTimePhrase(value: string, reference: string) {
+  const qualifier = dateQualifier(value, reference);
+  const time = formatLondonTime(value);
+  if (qualifier === "today") return `at ${time}`;
+  if (qualifier === "tomorrow") return `tomorrow at ${time}`;
+  return `${qualifier} at ${time}`;
+}
+
+function formatJourneyTime(value: string, reference: string) {
+  const qualifier = dateQualifier(value, reference);
+  const time = formatLondonTime(value);
+  if (qualifier === "today") return time;
+  if (qualifier === "tomorrow") return `Tomorrow ${time}`;
+  return `${qualifier} ${time}`;
+}
+
+function dateQualifier(value: string, reference: string) {
+  const target = londonDayKey(value);
+  const base = londonDayKey(reference);
+  if (target === base) return "today";
+
+  const days = daysBetweenLondonDates(base, target);
+  if (days === 1) return "tomorrow";
+  if (days > 1 && days < 7) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: LONDON_TIME_ZONE,
+      weekday: "short",
+    }).format(new Date(value));
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: LONDON_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+function londonDayKey(value: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: LONDON_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
+function daysBetweenLondonDates(startKey: string, endKey: string) {
+  const [startYear, startMonth, startDay] = startKey.split("-").map(Number);
+  const [endYear, endMonth, endDay] = endKey.split("-").map(Number);
+  const startUtc = Date.UTC(startYear, startMonth - 1, startDay);
+  const endUtc = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.round((endUtc - startUtc) / 86_400_000);
 }

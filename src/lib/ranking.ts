@@ -18,11 +18,11 @@ type BuildInput =
 
 const ALL_RAILHEADS = [...TERMINI, ...INTERMEDIATE_RAILHEADS];
 
-// An intermediate railhead is only worth a Realtime Trains query when you can
-// be ready on its platform no later than this past the fastest central
-// terminus. The slack covers the few minutes a mid-route stop departs after
-// the terminus, so a near-tie still surfaces as the lower-effort option.
-const INTERMEDIATE_READY_TOLERANCE_MS = 5 * 60_000;
+// An intermediate railhead is worth a Realtime Trains query when reaching it is
+// still broadly competitive with the fastest central terminus. This deliberately
+// allows Piccadilly-line starts to compare King's Cross with Finsbury Park: the
+// latter can be the same Cambridge train with a calmer, better-buffered transfer.
+const INTERMEDIATE_READY_TOLERANCE_MS = 12 * 60_000;
 
 export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
   // Treat the chosen depart-at time (if any) as "now" for planning. TfL and RTT
@@ -91,8 +91,8 @@ export async function buildRoutes(input: BuildInput): Promise<RoutesResponse> {
   }
 
   // Earliest you could be ready at any central terminus. Intermediate railheads
-  // (e.g. Finsbury Park) are only queried when reaching them isn't slower than
-  // this, so we don't spend Realtime Trains calls on a detour that can't win.
+  // (e.g. Finsbury Park) are queried when reaching them is close enough that the
+  // later train call and shorter interchange could produce a better buffer.
   const centralReadyTimes = TERMINI.map((t) => readyByTerminus.get(t.id)?.getTime()).filter(
     (value): value is number => value != null,
   );

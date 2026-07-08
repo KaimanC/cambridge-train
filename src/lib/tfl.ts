@@ -1,6 +1,7 @@
 import type { AccessJourney, JourneyLeg, Station } from "@/app/types";
 import type { Terminus } from "@/lib/constants";
 import {
+  addMinutes,
   londonDateParam,
   londonTimeParam,
   parseTflDateTime,
@@ -51,6 +52,46 @@ type TflJourneyLeg = {
 export type TflOrigin =
   | { kind: "coordinates"; lat: number; lon: number; label?: string }
   | { kind: "station"; stationId: string; stationName: string };
+
+type DirectAccessEstimate = {
+  durationMinutes: number;
+  lineName: string;
+  instruction: string;
+  warning: string;
+};
+
+type ScoredJourney = {
+  raw: TflJourney;
+  arrival: Date;
+  legs: JourneyLeg[];
+  score: number;
+};
+
+const DIRECT_ACCESS_ESTIMATES: Record<string, Record<string, DirectAccessEstimate>> = {
+  // TfL can occasionally return very poor Journey Planner options from Barons
+  // Court even though King's Cross and Finsbury Park are simple direct Piccadilly
+  // line journeys. Keep live TfL journeys when they look sane, but cap obvious
+  // outliers so catchability and leave-by times are not wildly pessimistic.
+  "940GZZLUBSC": {
+    "kings-cross": {
+      durationMinutes: 26,
+      lineName: "Piccadilly",
+      instruction: "Take the Piccadilly line direct from Barons Court to King's Cross St Pancras.",
+      warning: "TfL returned a slower-than-expected Barons Court route, so a direct Piccadilly estimate was used.",
+    },
+    "finsbury-park": {
+      durationMinutes: 34,
+      lineName: "Piccadilly",
+      instruction: "Take the Piccadilly line direct from Barons Court to Finsbury Park.",
+      warning: "TfL returned a slower-than-expected Barons Court route, so a direct Piccadilly estimate was used.",
+    },
+  },
+};
+
+const DIRECT_ACCESS_OUTLIER_GRACE_MINUTES = 5;
+const CHANGE_PENALTY_MS = 8 * 60_000;
+const DIRECT_TUBE_BONUS_MS = 10 * 60_000;
+const LONG_WALK_PENALTY_MS = 6 * 60_000;
 
 export async function getAllTubeStations(): Promise<Station[]> {
   // Type/NaptanMetroStation (~2.7MB) is far leaner than Mode/tube (~21MB) and
@@ -176,32 +217,36 @@ export async function getAccessJourney(
     walkingSpeed: "average",
   });
 
-  const journey = (payload.journeys ?? [])
-    .map((candidate) => ({
-      raw: candidate,
-      arrival: parseTflDateTime(candidate.arrivalDateTime),
-    }))
-    .filter((candidate): candidate is { raw: TflJourney; arrival: Date } =>
-      Boolean(candidate.arrival),
-    )
-    .sort((a, b) => a.arrival.getTime() - b.arrival.getTime())[0]?.raw;
+  const scored = chooseBestJourney(origin, terminus, payload.journeys ?? []);
 
-  if (!journey) {
+  if (!scored) {
+    const directEstimate = directAccessEstimate(origin, terminus, departAt);
+    if (directEstimate) return directEstimate;
     throw new Error(`TfL returned no usable journey to ${terminus.name}.`);
   }
 
-  const leaveTime = parseTflDateTime(journey.startDateTime) ?? new Date();
-  const arrivalTime = parseTflDateTime(journey.arrivalDateTime) ?? leaveTime;
+  const leaveTime =
+    parseTflDateTime(scored.legs[0]?.departureTime) ??
+    parseTflDateTime(scored.raw.startDateTime) ??
+    new Date();
+  const arrivalTime =
+    parseTflDateTime(scored.legs.at(-1)?.arrivalTime) ??
+    parseTflDateTime(scored.raw.arrivalDateTime) ??
+    leaveTime;
 
-  return {
+  const access = {
     terminusId: terminus.id,
     terminusName: terminus.name,
-    durationMinutes: journey.duration ?? minutesFromDates(leaveTime, arrivalTime),
+    durationMinutes: scored.legs.length
+      ? scored.legs.reduce((total, leg) => total + leg.durationMinutes, 0)
+      : scored.raw.duration ?? minutesFromDates(leaveTime, arrivalTime),
     leaveTime: toIso(leaveTime),
     arrivalTime: toIso(arrivalTime),
-    legs: (journey.legs ?? []).map(normalizeLeg),
+    legs: scored.legs,
     statusMessages: payload.stopMessages ?? [],
   } satisfies AccessJourney;
+
+  return capOutlierAccessJourney(origin, terminus, access, departAt);
 }
 
 async function tflFetchJson<T>(
@@ -231,6 +276,151 @@ async function tflFetchJson<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function chooseBestJourney(
+  origin: TflOrigin,
+  terminus: Terminus,
+  journeys: TflJourney[],
+): ScoredJourney | undefined {
+  return journeys
+    .map((journey) => {
+      const arrival = parseTflDateTime(journey.arrivalDateTime);
+      if (!arrival) return undefined;
+      const legs = normalizeJourneyLegs(journey.legs ?? [], origin);
+      return {
+        raw: journey,
+        arrival,
+        legs,
+        score: scoreJourney(journey, legs, arrival, terminus),
+      } satisfies ScoredJourney;
+    })
+    .filter((journey): journey is ScoredJourney => Boolean(journey))
+    .sort((a, b) => {
+      const scoreDelta = a.score - b.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return a.arrival.getTime() - b.arrival.getTime();
+    })[0];
+}
+
+function scoreJourney(
+  journey: TflJourney,
+  legs: JourneyLeg[],
+  arrival: Date,
+  terminus: Terminus,
+) {
+  let score = arrival.getTime();
+  score += countLineChanges(legs) * CHANGE_PENALTY_MS;
+
+  const walkingMinutes = legs
+    .filter((leg) => leg.mode === "walking")
+    .reduce((total, leg) => total + leg.durationMinutes, 0);
+  if (walkingMinutes > 8) score += LONG_WALK_PENALTY_MS;
+
+  if (isDirectTubeJourney(legs, terminus)) score -= DIRECT_TUBE_BONUS_MS;
+
+  // If two journeys are otherwise similar, still prefer TfL's shorter duration.
+  score += (journey.duration ?? legs.reduce((total, leg) => total + leg.durationMinutes, 0)) * 1_000;
+
+  return score;
+}
+
+function normalizeJourneyLegs(legs: TflJourneyLeg[], origin: TflOrigin) {
+  return legs
+    .map(normalizeLeg)
+    .filter((leg, index) => !isOriginTransferLeg(leg, index, origin));
+}
+
+function isOriginTransferLeg(leg: JourneyLeg, index: number, origin: TflOrigin) {
+  if (origin.kind !== "station" || index !== 0) return false;
+  if (leg.durationMinutes > 5) return false;
+
+  const instruction = normalizeText(leg.instruction);
+  if (!instruction.startsWith("transfer to ")) return false;
+
+  const originName = normalizeText(origin.stationName)
+    .replace(/ underground station$/, "")
+    .replace(/ station$/, "");
+
+  return instruction.includes(originName);
+}
+
+function countLineChanges(legs: JourneyLeg[]) {
+  const rideLegs = legs.filter((leg) => leg.mode !== "walking");
+  let changes = 0;
+  let previousLine: string | undefined;
+
+  for (const leg of rideLegs) {
+    const line = leg.lineName ?? leg.mode;
+    if (previousLine && line !== previousLine) changes += 1;
+    previousLine = line;
+  }
+
+  return changes;
+}
+
+function isDirectTubeJourney(legs: JourneyLeg[], terminus: Terminus) {
+  const rideLegs = legs.filter((leg) => leg.mode !== "walking");
+  if (rideLegs.length !== 1) return false;
+  const line = normalizeText(rideLegs[0].lineName ?? "");
+  const instruction = normalizeText(rideLegs[0].instruction);
+
+  if (terminus.id === "kings-cross" || terminus.id === "finsbury-park") {
+    return line.includes("piccadilly") || instruction.includes("piccadilly");
+  }
+
+  return true;
+}
+
+function directAccessEstimate(
+  origin: TflOrigin,
+  terminus: Terminus,
+  departAt?: Date,
+): AccessJourney | undefined {
+  if (origin.kind !== "station") return undefined;
+  const estimate = DIRECT_ACCESS_ESTIMATES[origin.stationId]?.[terminus.id];
+  if (!estimate) return undefined;
+
+  const leaveTime = departAt ?? new Date();
+  const arrivalTime = addMinutes(leaveTime, estimate.durationMinutes);
+
+  return {
+    terminusId: terminus.id,
+    terminusName: terminus.name,
+    durationMinutes: estimate.durationMinutes,
+    leaveTime: toIso(leaveTime),
+    arrivalTime: toIso(arrivalTime),
+    legs: [
+      {
+        mode: "tube",
+        lineName: estimate.lineName,
+        instruction: estimate.instruction,
+        direction: terminus.name,
+        durationMinutes: estimate.durationMinutes,
+        departureTime: toIso(leaveTime),
+        arrivalTime: toIso(arrivalTime),
+      },
+    ],
+    statusMessages: [estimate.warning],
+  } satisfies AccessJourney;
+}
+
+function capOutlierAccessJourney(
+  origin: TflOrigin,
+  terminus: Terminus,
+  access: AccessJourney,
+  departAt?: Date,
+) {
+  const directEstimate = directAccessEstimate(origin, terminus, departAt);
+  if (!directEstimate) return access;
+  if (
+    access.durationMinutes <=
+    directEstimate.durationMinutes + DIRECT_ACCESS_OUTLIER_GRACE_MINUTES
+  ) {
+    return access;
+  }
+
+  return directEstimate;
 }
 
 function normalizeStation(stop: TflStopPoint): Station | undefined {
@@ -287,4 +477,8 @@ function extractDirection(instruction: string) {
 
 function minutesFromDates(start: Date, end: Date) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
+}
+
+function normalizeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
